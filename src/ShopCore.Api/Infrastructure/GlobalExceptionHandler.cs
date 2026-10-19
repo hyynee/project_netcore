@@ -1,4 +1,6 @@
 ﻿using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
 using ShopCore.Api.Exceptions;
 
@@ -43,6 +45,8 @@ public sealed class GlobalExceptionHandler(
             ForbiddenException => (StatusCodes.Status403Forbidden, "Access to the resource is forbidden."),
             NotFoundException => (StatusCodes.Status404NotFound, "The requested resource was not found."),
             ConflictException => (StatusCodes.Status409Conflict, "The request conflicts with the current state."),
+            DbUpdateException when IsUniqueConstraintViolation(exception) =>
+                (StatusCodes.Status409Conflict, "The request conflicts with existing data."),
             UnprocessableEntityException => (StatusCodes.Status422UnprocessableEntity, "The request could not be processed."),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
         };
@@ -82,5 +86,17 @@ public sealed class GlobalExceptionHandler(
         };
 
         return await problemDetails.TryWriteAsync(context);
+    }
+
+    private static bool IsUniqueConstraintViolation(Exception exception)
+    {
+        return exception is DbUpdateException
+            && exception.GetBaseException() is SqlException sqlException
+            && IsUniqueConstraintNumber(sqlException.Number);
+    }
+
+    internal static bool IsUniqueConstraintNumber(int sqlErrorNumber)
+    {
+        return sqlErrorNumber is 2601 or 2627;
     }
 }
