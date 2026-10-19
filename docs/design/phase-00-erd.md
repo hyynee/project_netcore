@@ -22,6 +22,17 @@ erDiagram
     ApplicationUser ||--o{ RefreshToken : owns
     ApplicationUser ||--o{ IdempotencyRecord : submits
 
+    ApplicationUser {
+        uuid Id PK
+        string Email UK
+        string UserName
+        datetime CreatedAt
+    }
+    Category {
+        uuid Id PK
+        string Name
+        bool IsActive
+    }
     Product {
         uuid Id PK
         int Stock
@@ -34,6 +45,12 @@ erDiagram
         int Version
         binary RowVersion
     }
+    CartItem {
+        uuid Id PK
+        uuid CartId FK
+        uuid ProductId FK
+        int Quantity
+    }
     Order {
         uuid Id PK
         uuid UserId FK
@@ -41,6 +58,13 @@ erDiagram
         string Status
         decimal TotalAmount
         string Currency
+        string RecipientName
+        string Phone
+        string AddressLine1
+        string Ward
+        string District
+        string Province
+        string PostalCode
     }
     Payment {
         uuid Id PK

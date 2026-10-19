@@ -2,7 +2,9 @@ openapi: 3.0.3
 info:
   title: ShopCore Phase 00 conventions
   version: 1.0.0
-  description: Baseline API conventions. Endpoint contracts are added by their owning phase.
+  description: >-
+    Baseline API conventions. All business endpoints are versioned under
+    /api/v1. Endpoint contracts are added by their owning phase.
   contact:
     name: ShopCore maintainers
 servers:
