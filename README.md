@@ -25,3 +25,31 @@ Bộ file này **bổ sung** cho bản "ShopCore coding rules" ban đầu (nền
 - **Rule 13 (bản gốc)** khuyên không cần format response lỗi thống nhất. Với API có client thật, nên thống nhất lỗi bằng ProblemDetails (RFC 9457, thay RFC 7807). Xem `03-api-contract.md`.
 - **Rule 12 (bản gốc)**: `User.FindFirst(...)?.Value` có thể null. Phải xử lý null/không hợp lệ rõ ràng. Xem `01-security.md`.
 - **Rule 4 (bản gốc)**: "transaction + concurrency phù hợp" cần cụ thể hóa. Xem `04-database.md`.
+
+## Persistence local
+
+Phase 02a uses SQL Server; EF Core InMemory is not supported for persistence tests.
+Create a local `.env` or export `SQLSERVER_SA_PASSWORD` (do not commit secrets), then run:
+
+```bash
+docker compose up -d
+dotnet tool restore
+dotnet ef database update --project src/ShopCore.Infrastructure
+```
+
+The API connection string is supplied through
+`ConnectionStrings__DefaultConnection`. The SQL Server container maps to port 1433 by
+default. `dotnet ef migrations script --idempotent` should be reviewed before a
+production migration is applied.
+
+## API documentation
+
+In Development or Staging, start the API and open:
+
+- Swagger UI: `https://localhost:<port>/swagger`
+- Swagger JSON: `https://localhost:<port>/swagger/v1/swagger.json`
+- ASP.NET Core OpenAPI JSON (Development): `https://localhost:<port>/openapi/v1.json`
+
+Swagger UI is intentionally disabled in Production. The generated document is versioned
+as `v1`; controllers should declare their route, response status codes, validation
+requirements, and authorization requirements so the contract remains useful to clients.

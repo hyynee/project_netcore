@@ -18,6 +18,9 @@ dotnet_style_qualification_for_event = false:suggestion
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.CA1822.severity = suggestion
 
+[src/**/Persistence/Migrations/*.cs]
+dotnet_diagnostic.CA1861.severity = none
+
 [*.json]
 indent_size = 2
 

@@ -12,6 +12,8 @@ permissions:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    env:
+      SHOPCORE_RUN_SQL_TESTS: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
