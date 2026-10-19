@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "devDependencies": {
+    "@stoplight/spectral-cli": "6.15.0"
+  },
+  "scripts": {
+    "lint:openapi": "spectral lint docs/contracts/phase-00.yaml"
+  }
+}

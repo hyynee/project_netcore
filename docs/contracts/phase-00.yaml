@@ -1,0 +1,49 @@
+openapi: 3.0.3
+info:
+  title: ShopCore Phase 00 conventions
+  version: 1.0.0
+  description: Baseline API conventions. Endpoint contracts are added by their owning phase.
+  contact:
+    name: ShopCore maintainers
+servers:
+  - url: /
+paths: {}
+components:
+  schemas:
+    ProblemDetails:
+      type: object
+      required: [type, title, status, traceId]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          format: int32
+        detail:
+          type: string
+        instance:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+  responses:
+    ValidationProblem:
+      description: Validation failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    ConflictProblem:
+      description: State, concurrency or idempotency conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
