@@ -1,6 +1,16 @@
 @ShopCore.Api_HostAddress = http://localhost:5130
 
-GET {{ShopCore.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+GET {{ShopCore.Api_HostAddress}}/health/live
+Accept: text/plain
+
+###
+
+GET {{ShopCore.Api_HostAddress}}/health/ready
+Accept: text/plain
+
+###
+
+GET {{ShopCore.Api_HostAddress}}/api/v1/diagnostics/error
+Accept: application/problem+json
 
 ###
