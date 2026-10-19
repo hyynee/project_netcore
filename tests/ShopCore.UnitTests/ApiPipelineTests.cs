@@ -57,6 +57,9 @@ public sealed class ApiPipelineTests : IClassFixture<WebApplicationFactory<Progr
         {
             builder.UseEnvironment("Production");
             builder.UseSetting("Cors:AllowedOrigins:0", "https://example.com");
+            builder.UseSetting(
+                "ConnectionStrings:DefaultConnection",
+                "Server=localhost,1433;Database=ShopCore_Test;User Id=sa;Password=Pass_word123!;TrustServerCertificate=True");
         });
         using var client = factory.CreateClient();
         using var response = await client.GetAsync("/api/v1/diagnostics/error");
