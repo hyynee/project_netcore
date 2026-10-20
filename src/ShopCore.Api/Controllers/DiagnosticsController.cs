@@ -1,10 +1,12 @@
 ﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace ShopCore.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/diagnostics")]
 [ApiExplorerSettings(IgnoreApi = true)]
+[EnableRateLimiting("api")]
 public sealed class DiagnosticsController(IHostEnvironment environment) : ControllerBase
 {
     [HttpGet("error")]

@@ -1,14 +1,28 @@
 ﻿using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.IdentityModel.Tokens;
 using ShopCore.Api.Configuration;
 using ShopCore.Api.Infrastructure;
+using ShopCore.Api.Identity;
+using ShopCore.Application.Contracts;
+using ShopCore.Domain.Entities;
 using ShopCore.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
+
+if ((builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing")) &&
+    string.IsNullOrWhiteSpace(builder.Configuration["Jwt:SigningKey"]))
+{
+    builder.Configuration["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+}
 
 builder.Logging.ClearProviders();
 builder.Logging.AddJsonConsole(options =>
@@ -33,7 +47,55 @@ builder.Services.AddProblemDetails(options =>
 });
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddHealthChecks();
+if (!builder.Environment.IsEnvironment("Testing") &&
+    string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is required to run ShopCore.Api. " +
+        "Start SQL Server with 'docker compose up -d' and export the connection string before running the API.");
+}
+
 builder.Services.AddShopCorePersistence(builder.Configuration, builder.Environment);
+builder.Services
+    .AddOptions<JwtOptions>()
+    .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddIdentityCore<ApplicationUser>(options =>
+{
+    options.User.RequireUniqueEmail = true;
+    options.Password.RequiredLength = 12;
+    options.Password.RequireDigit = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.AllowedForNewUsers = true;
+})
+    .AddRoles<IdentityRole<Guid>>()
+    .AddEntityFrameworkStores<ShopCoreDbContext>()
+    .AddSignInManager();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
+            ?? throw new InvalidOperationException("Jwt configuration is required.");
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = jwt.Issuer,
+            ValidateAudience = true,
+            ValidAudience = jwt.Audience,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+    });
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<IUserProfileService, ShopCore.Api.Services.UserProfileService>();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
@@ -57,7 +119,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.OnRejected = (context, _) =>
+    options.OnRejected = async (context, cancellationToken) =>
     {
         if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
         {
@@ -65,7 +127,17 @@ builder.Services.AddRateLimiter(options =>
                 ((int)retryAfter.TotalSeconds).ToString(CultureInfo.InvariantCulture);
         }
 
-        return ValueTask.CompletedTask;
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new ProblemDetails
+            {
+                Type = "https://httpstatuses.com/429",
+                Title = "Too many requests.",
+                Status = StatusCodes.Status429TooManyRequests,
+                Instance = context.HttpContext.Request.Path,
+                Extensions = { ["traceId"] = context.HttpContext.TraceIdentifier }
+            },
+            cancellationToken);
     };
     options.AddPolicy("api", context =>
         RateLimitPartition.GetFixedWindowLimiter(
@@ -76,6 +148,26 @@ builder.Services.AddRateLimiter(options =>
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0
             }));
+    options.AddPolicy("auth-register", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(10), QueueLimit = 0 }));
+    options.AddPolicy("auth-login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            $"{context.Connection.RemoteIpAddress}|{context.Request.Headers["X-Auth-Account"]}",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("auth-refresh", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("auth-changepw", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            $"{context.Connection.RemoteIpAddress}|{context.Request.Headers["X-Auth-Account"]}",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 5, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("auth-logoutall", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
 
 var corsOptions = builder.Configuration
@@ -108,6 +200,52 @@ builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLi
 
 var app = builder.Build();
 
+if (!app.Environment.IsProduction() &&
+    !app.Environment.IsEnvironment("Testing") &&
+    !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")))
+{
+    using var scope = app.Services.CreateScope();
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+    foreach (var role in new[] { "Customer", "Admin" })
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            var result = await roleManager.CreateAsync(new IdentityRole<Guid>(role));
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Could not seed role {role}: {string.Join(", ", result.Errors.Select(x => x.Description))}");
+            }
+        }
+
+    }
+
+    if (app.Environment.IsDevelopment() &&
+        !string.IsNullOrWhiteSpace(builder.Configuration["Identity:DevelopmentAdminEmail"]) &&
+        !string.IsNullOrWhiteSpace(builder.Configuration["Identity:DevelopmentAdminPassword"]))
+    {
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var email = builder.Configuration["Identity:DevelopmentAdminEmail"]!;
+        var admin = await userManager.FindByEmailAsync(email);
+        if (admin is null)
+        {
+            admin = new ApplicationUser { Id = Guid.NewGuid(), Email = email, UserName = email };
+            var createResult = await userManager.CreateAsync(
+                admin,
+                builder.Configuration["Identity:DevelopmentAdminPassword"]!);
+            if (!createResult.Succeeded)
+            {
+                throw new InvalidOperationException("Could not seed the development admin.");
+            }
+        }
+
+        if (!await userManager.IsInRoleAsync(admin, "Admin"))
+        {
+            await userManager.AddToRoleAsync(admin, "Admin");
+        }
+    }
+}
+
 app.UseForwardedHeaders();
 app.UseStatusCodePages();
 
@@ -121,6 +259,7 @@ app.UseExceptionHandler();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseCors("Frontend");
 app.UseRateLimiter();
+app.UseAuthentication();
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
@@ -145,7 +284,7 @@ app.MapHealthChecks("/health/live", new() { Predicate = _ => false })
 app.MapHealthChecks("/health/ready")
     .AllowAnonymous()
     .DisableRateLimiting();
-app.MapControllers().RequireRateLimiting("api");
+app.MapControllers();
 
 app.Run();
 

@@ -11,7 +11,11 @@ public sealed class ApiPipelineTests : IClassFixture<WebApplicationFactory<Progr
 
     public ApiPipelineTests(WebApplicationFactory<Program> factory)
     {
-        _client = factory.WithWebHostBuilder(builder => builder.UseEnvironment("Testing")).CreateClient();
+        _client = factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment("Testing");
+            builder.UseSetting("Jwt:SigningKey", "test-signing-key-with-at-least-32-characters");
+        }).CreateClient();
     }
 
     [Fact]
@@ -51,6 +55,16 @@ public sealed class ApiPipelineTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
+    public async Task LogoutRequiresAuthentication()
+    {
+        using var response = await _client.PostAsJsonAsync(
+            "/api/v1/auth/logout",
+            new { RefreshToken = "not-a-token" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task DiagnosticsEndpointIsNotAvailableOutsideDevelopment()
     {
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -60,6 +74,7 @@ public sealed class ApiPipelineTests : IClassFixture<WebApplicationFactory<Progr
             builder.UseSetting(
                 "ConnectionStrings:DefaultConnection",
                 "Server=localhost,1433;Database=ShopCore_Test;User Id=sa;Password=Pass_word123!;TrustServerCertificate=True");
+            builder.UseSetting("Jwt:SigningKey", "test-signing-key-with-at-least-32-characters");
         });
         using var client = factory.CreateClient();
         using var response = await client.GetAsync("/api/v1/diagnostics/error");
