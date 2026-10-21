@@ -42,6 +42,33 @@ The API connection string is supplied through
 default. `dotnet ef migrations script --idempotent` should be reviewed before a
 production migration is applied.
 
+### Authentication local configuration
+
+JWT signing keys must come from environment variables or a secret manager outside local
+development. Set at least:
+
+```bash
+export Jwt__SigningKey="$(openssl rand -base64 48)"
+export Jwt__Issuer="ShopCore"
+export Jwt__Audience="ShopCore.Api"
+```
+
+For a local development admin, configure user-secrets or environment variables rather than
+committing credentials:
+
+```bash
+dotnet user-secrets set "Identity:DevelopmentAdminEmail" "admin@example.test" \
+  --project src/ShopCore.Api
+dotnet user-secrets set "Identity:DevelopmentAdminPassword" "<strong-local-password>" \
+  --project src/ShopCore.Api
+```
+
+The API exposes `POST /api/v1/auth/register`, `POST /api/v1/auth/login`,
+`POST /api/v1/auth/refresh`, and authenticated `POST /api/v1/auth/logout`. Refresh tokens
+are stored only as SHA-256 hashes, rotated on use, and revoke their family when reuse is
+detected. Roles `Customer` and `Admin` are initialized outside Production when a configured
+database is available. Production role/user provisioning is deployment-owned.
+
 ## API documentation
 
 In Development or Staging, start the API and open:

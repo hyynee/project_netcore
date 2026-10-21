@@ -9,4 +9,5 @@ public sealed class RefreshToken : Entity
     public DateTime ExpiresAt { get; set; }
     public DateTime? RevokedAt { get; set; }
     public string? ReplacedByTokenHash { get; set; }
+    public byte[] RowVersion { get; set; } = [];
 }

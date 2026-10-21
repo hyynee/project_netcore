@@ -1,13 +1,14 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using ShopCore.Domain.Entities;
 using ShopCore.Domain.Enums;
 
 namespace ShopCore.Infrastructure.Persistence;
 
 public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> options, TimeProvider timeProvider)
-    : DbContext(options)
+    : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
 {
-    public DbSet<ApplicationUser> Users => Set<ApplicationUser>();
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<Cart> Carts => Set<Cart>();
@@ -22,16 +23,19 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<ReconciliationIssue> ReconciliationIssues => Set<ReconciliationIssue>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<UserShippingAddress> UserShippingAddresses => Set<UserShippingAddress>();
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(ModelBuilder builder)
     {
-        ConfigureUsers(modelBuilder);
-        ConfigureCatalog(modelBuilder);
-        ConfigureCart(modelBuilder);
-        ConfigureOrders(modelBuilder);
-        ConfigurePayments(modelBuilder);
-        ConfigureInventory(modelBuilder);
-        ConfigureSupportTables(modelBuilder);
+        base.OnModelCreating(builder);
+        ConfigureUsers(builder);
+        ConfigureUserProfile(builder);
+        ConfigureCatalog(builder);
+        ConfigureCart(builder);
+        ConfigureOrders(builder);
+        ConfigurePayments(builder);
+        ConfigureInventory(builder);
+        ConfigureSupportTables(builder);
     }
 
     public override int SaveChanges()
@@ -84,8 +88,12 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
         var user = modelBuilder.Entity<ApplicationUser>();
         user.ToTable("ApplicationUsers");
         user.Property(x => x.Email).HasMaxLength(320).IsRequired();
+        user.Property(x => x.NormalizedEmail).HasMaxLength(320).IsRequired();
         user.Property(x => x.UserName).HasMaxLength(100).IsRequired();
-        user.HasIndex(x => x.Email).IsUnique();
+        user.Property(x => x.NormalizedUserName).HasMaxLength(100).IsRequired();
+        user.Property(x => x.FirstName).HasMaxLength(100);
+        user.Property(x => x.LastName).HasMaxLength(100);
+        user.HasIndex(x => x.NormalizedEmail).IsUnique();
         user.HasOne(x => x.Cart).WithOne(x => x.User).HasForeignKey<Cart>(x => x.UserId)
             .OnDelete(DeleteBehavior.Cascade);
         user.HasMany(x => x.Orders).WithOne(x => x.User)
@@ -94,6 +102,23 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
             .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         user.HasMany(x => x.IdempotencyRecords).WithOne(x => x.User)
             .HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        user.HasOne(x => x.ShippingAddress).WithOne(x => x.User)
+            .HasForeignKey<UserShippingAddress>(x => x.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+
+    private static void ConfigureUserProfile(ModelBuilder modelBuilder)
+    {
+        var addr = modelBuilder.Entity<UserShippingAddress>();
+        addr.ToTable("UserShippingAddresses");
+        addr.Property(x => x.RecipientName).HasMaxLength(200).IsRequired();
+        addr.Property(x => x.Phone).HasMaxLength(30).IsRequired();
+        addr.Property(x => x.AddressLine1).HasMaxLength(500).IsRequired();
+        addr.Property(x => x.Ward).HasMaxLength(150).IsRequired();
+        addr.Property(x => x.District).HasMaxLength(150).IsRequired();
+        addr.Property(x => x.Province).HasMaxLength(150).IsRequired();
+        addr.Property(x => x.PostalCode).HasMaxLength(20);
+        addr.HasIndex(x => x.UserId).IsUnique();
     }
 
     private static void ConfigureCatalog(ModelBuilder modelBuilder)
@@ -258,6 +283,7 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
         var refreshToken = modelBuilder.Entity<RefreshToken>();
         refreshToken.Property(x => x.TokenHash).HasMaxLength(128).IsRequired();
         refreshToken.Property(x => x.ReplacedByTokenHash).HasMaxLength(128);
+        refreshToken.Property(x => x.RowVersion).IsRowVersion();
         refreshToken.HasIndex(x => x.TokenHash).IsUnique();
         refreshToken.HasIndex(x => x.FamilyId);
     }

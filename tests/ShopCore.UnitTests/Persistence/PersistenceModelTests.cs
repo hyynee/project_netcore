@@ -16,6 +16,8 @@ public sealed class PersistenceModelTests
         var product = db.Model.FindEntityType(typeof(ShopCore.Domain.Entities.Product))!;
         var price = product.FindProperty(nameof(ShopCore.Domain.Entities.Product.Price))!;
         var rowVersion = product.FindProperty(nameof(ShopCore.Domain.Entities.Product.RowVersion))!;
+        var refreshToken = db.Model.FindEntityType(typeof(ShopCore.Domain.Entities.RefreshToken))!;
+        var refreshTokenRowVersion = refreshToken.FindProperty(nameof(ShopCore.Domain.Entities.RefreshToken.RowVersion))!;
         var pendingIndex = db.Model.FindEntityType(typeof(ShopCore.Domain.Entities.Order))!
             .GetIndexes()
             .Single(index => index.Properties.Any(property => property.Name == nameof(ShopCore.Domain.Entities.Order.CartVersion)));
@@ -23,6 +25,8 @@ public sealed class PersistenceModelTests
         Assert.Equal("decimal(18,0)", price.GetColumnType());
         Assert.True(rowVersion.IsConcurrencyToken);
         Assert.True(rowVersion.ValueGenerated == Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAddOrUpdate);
+        Assert.True(refreshTokenRowVersion.IsConcurrencyToken);
+        Assert.True(refreshTokenRowVersion.ValueGenerated == Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAddOrUpdate);
         Assert.True(pendingIndex.IsUnique);
         Assert.Equal("[Status] = 'PendingPayment'", pendingIndex.GetFilter());
     }
