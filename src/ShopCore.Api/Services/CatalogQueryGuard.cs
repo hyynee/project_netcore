@@ -23,6 +23,15 @@ internal static class CatalogQueryGuard
                 $"PageSize must be between 1 and {CatalogPaging.MaxPageSize}.");
         }
 
+        checked
+        {
+            var skip = (resolvedPage - 1) * (long)resolvedPageSize;
+            if (skip > int.MaxValue)
+            {
+                throw new ValidationException("Page is too large.");
+            }
+        }
+
         return (resolvedPage, resolvedPageSize);
     }
 

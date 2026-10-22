@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ShopCore.Domain.Entities;
 using ShopCore.Domain.Enums;
@@ -32,6 +33,57 @@ public sealed class CatalogApiTests : IClassFixture<CatalogApiFixture>
             body.TotalCount == 0 ? 0 : (int)Math.Ceiling(body.TotalCount / (double)body.PageSize),
             body.TotalPages);
         Assert.All(body.Items, item => Assert.True(item.AvailableQuantity >= 0));
+    }
+
+    [CatalogApiFact]
+    public async Task GuestProductProjectionExposesAvailableQuantityOnly()
+    {
+        Guid productId;
+        await using (var db = _fixture.CreateContext())
+        {
+            var category = new Category { Name = $"Projection-{Guid.NewGuid():N}" };
+            var product = new Product
+            {
+                Category = category,
+                Name = $"Projection product {Guid.NewGuid():N}",
+                Price = 100_000m,
+                Currency = "VND",
+                Stock = 10,
+                ReservedQuantity = 3,
+                IsActive = true
+            };
+            db.Products.Add(product);
+            await db.SaveChangesAsync();
+            productId = product.Id;
+        }
+
+        using var client = _fixture.CreateClient();
+
+        using (var listResponse = await client.GetAsync("/api/v1/products?pageSize=100"))
+        {
+            Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+
+            using var list = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
+            var item = list.RootElement.GetProperty("items").EnumerateArray()
+                .Single(element => element.GetProperty("id").GetGuid() == productId);
+
+            Assert.Equal(7, item.GetProperty("availableQuantity").GetInt32());
+            AssertNoInventoryFields(item);
+        }
+
+        using var detailResponse = await client.GetAsync($"/api/v1/products/{productId}");
+        Assert.Equal(HttpStatusCode.OK, detailResponse.StatusCode);
+
+        using var detail = JsonDocument.Parse(await detailResponse.Content.ReadAsStringAsync());
+        Assert.Equal(7, detail.RootElement.GetProperty("availableQuantity").GetInt32());
+        AssertNoInventoryFields(detail.RootElement);
+    }
+
+    private static void AssertNoInventoryFields(JsonElement element)
+    {
+        var names = element.EnumerateObject().Select(property => property.Name).ToArray();
+        Assert.DoesNotContain(names, name => string.Equals(name, "stock", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(names, name => string.Equals(name, "reservedQuantity", StringComparison.OrdinalIgnoreCase));
     }
 
     [CatalogApiFact]

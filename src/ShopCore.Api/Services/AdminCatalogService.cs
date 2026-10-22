@@ -353,12 +353,30 @@ public sealed class AdminCatalogService(ShopCoreDbContext db, ICurrentUser curre
         if (hasProducts)
         {
             category.IsActive = false;
-            await db.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                throw new ConflictException(
+                    "The category was modified by another administrator. Reload the category and retry.");
+            }
+
             return new CategoryDeletionResult(category.Id, category.IsActive, Deactivated: true);
         }
 
         db.Categories.Remove(category);
-        await db.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new ConflictException(
+                "The category was modified by another administrator. Reload the category and retry.");
+        }
+
         return new CategoryDeletionResult(category.Id, IsActive: false, Deactivated: false);
     }
 
@@ -371,16 +389,31 @@ public sealed class AdminCatalogService(ShopCoreDbContext db, ICurrentUser curre
             .Select(product => new { product.Id, product.Name })
             .ToListAsync(cancellationToken);
 
-        db.ChangeTracker.Clear();
-        await db.ProductSearchTerms.ExecuteDeleteAsync(cancellationToken);
-
-        var terms = products
+        var termsList = products
             .SelectMany(product => ProductSearchTokenizer.Tokenize(product.Name)
-                .Select(term => new ProductSearchTerm { ProductId = product.Id, Term = term }));
-        db.ProductSearchTerms.AddRange(terms);
-        await db.SaveChangesAsync(cancellationToken);
+                .Select(term => new ProductSearchTerm { ProductId = product.Id, Term = term }))
+            .ToList();
 
-        return new SearchReindexResult(products.Count, terms.Count());
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            db.ChangeTracker.Clear();
+            await db.ProductSearchTerms.ExecuteDeleteAsync(cancellationToken);
+            if (termsList.Count > 0)
+            {
+                db.ProductSearchTerms.AddRange(termsList);
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return new SearchReindexResult(products.Count, termsList.Count);
     }
 
     private void EnsureAdmin()

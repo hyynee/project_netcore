@@ -1,7 +1,7 @@
 ﻿using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Mvc;
 using ShopCore.Api.Exceptions;
 
 namespace ShopCore.Api.Infrastructure;
@@ -46,6 +46,8 @@ public sealed class GlobalExceptionHandler(
             NotFoundException => (StatusCodes.Status404NotFound, "The requested resource was not found."),
             ConflictException => (StatusCodes.Status409Conflict, "The request conflicts with the current state."),
             DbUpdateException when IsUniqueConstraintViolation(exception) =>
+                (StatusCodes.Status409Conflict, "The request conflicts with existing data."),
+            DbUpdateException when IsForeignKeyConstraintViolation(exception) =>
                 (StatusCodes.Status409Conflict, "The request conflicts with existing data."),
             UnprocessableEntityException => (StatusCodes.Status422UnprocessableEntity, "The request could not be processed."),
             _ => (StatusCodes.Status500InternalServerError, "An unexpected error occurred.")
@@ -95,8 +97,20 @@ public sealed class GlobalExceptionHandler(
             && IsUniqueConstraintNumber(sqlException.Number);
     }
 
+    private static bool IsForeignKeyConstraintViolation(Exception exception)
+    {
+        return exception is DbUpdateException
+            && exception.GetBaseException() is SqlException sqlException
+            && IsForeignKeyConstraintNumber(sqlException.Number);
+    }
+
     internal static bool IsUniqueConstraintNumber(int sqlErrorNumber)
     {
         return sqlErrorNumber is 2601 or 2627;
+    }
+
+    internal static bool IsForeignKeyConstraintNumber(int sqlErrorNumber)
+    {
+        return sqlErrorNumber is 547;
     }
 }
