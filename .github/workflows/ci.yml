@@ -15,7 +15,7 @@ jobs:
     env:
       SHOPCORE_RUN_SQL_TESTS: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
