@@ -36,7 +36,7 @@ public sealed class AuthService(
                 errors);
         }
 
-        var roleResult = await userManager.AddToRoleAsync(user, "Customer");
+        var roleResult = await userManager.AddToRoleAsync(user, ShopRoles.Customer);
         if (!roleResult.Succeeded)
         {
             try
@@ -143,12 +143,14 @@ public sealed class AuthService(
         var options = jwtOptions.Value;
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var expires = now.AddMinutes(options.AccessTokenMinutes);
-        var claims = new[]
+        var roles = await userManager.GetRolesAsync(user);
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email ?? string.Empty)
+            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email ?? string.Empty)
         };
+        claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(options.SigningKey));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var jwt = new JwtSecurityToken(options.Issuer, options.Audience, claims, now, expires, credentials);

@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using ShopCore.Api.Exceptions;
 using ShopCore.Application.Contracts;
 using ShopCore.Domain.Entities;

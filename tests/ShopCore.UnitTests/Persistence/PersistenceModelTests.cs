@@ -1,4 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using ShopCore.Infrastructure.Persistence;
 
 namespace ShopCore.UnitTests.Persistence;
@@ -29,6 +31,68 @@ public sealed class PersistenceModelTests
         Assert.True(refreshTokenRowVersion.ValueGenerated == Microsoft.EntityFrameworkCore.Metadata.ValueGenerated.OnAddOrUpdate);
         Assert.True(pendingIndex.IsUnique);
         Assert.Equal("[Status] = 'PendingPayment'", pendingIndex.GetFilter());
+    }
+
+    [Fact]
+    public void CatalogModelUsesIndexesAndConstraintsForPublicQueries()
+    {
+        var options = new DbContextOptionsBuilder<ShopCoreDbContext>()
+            .UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=ShopCore")
+            .Options;
+        using var db = new ShopCoreDbContext(options, TimeProvider.System);
+        var model = db.GetService<IDesignTimeModel>().Model;
+
+        var product = model.FindEntityType(typeof(ShopCore.Domain.Entities.Product))!;
+        var category = model.FindEntityType(typeof(ShopCore.Domain.Entities.Category))!;
+        var adjustment = model.FindEntityType(typeof(ShopCore.Domain.Entities.InventoryAdjustment))!;
+
+        var productIndexes = product.GetIndexes()
+            .Select(index => string.Join(",", index.Properties.Select(property => property.Name)))
+            .ToList();
+        var categoryIndexes = category.GetIndexes()
+            .Select(index => string.Join(",", index.Properties.Select(property => property.Name)))
+            .ToList();
+        var productConstraints = product.GetCheckConstraints()
+            .Select(constraint => constraint.Name)
+            .ToList();
+        var adjustmentType = adjustment.FindProperty(nameof(ShopCore.Domain.Entities.InventoryAdjustment.Type))!;
+
+        Assert.Contains("CategoryId,IsActive", productIndexes);
+        Assert.Contains("IsActive,Name", productIndexes);
+        Assert.Contains("IsActive,CategoryId,Name", productIndexes);
+        Assert.Contains("IsActive,Price", productIndexes);
+        Assert.Contains("IsActive,CreatedAt", productIndexes);
+        Assert.Contains("IsActive,Name", categoryIndexes);
+
+        Assert.Contains("CK_Products_Price_Positive", productConstraints);
+        Assert.Contains("CK_Products_Stock_NonNegative", productConstraints);
+        Assert.Contains("CK_Products_Reserved_NonNegative", productConstraints);
+        Assert.Contains("CK_Products_Reserved_NotGreaterThanStock", productConstraints);
+
+        Assert.Equal("nvarchar(32)", adjustmentType.GetColumnType());
+        Assert.Empty(product.GetSeedData());
+        Assert.Empty(category.GetSeedData());
+    }
+
+    [Fact]
+    public void CatalogModelUsesTheProductSearchTermIndex()
+    {
+        var options = new DbContextOptionsBuilder<ShopCoreDbContext>()
+            .UseSqlServer("Server=(localdb)\\MSSQLLocalDB;Database=ShopCore")
+            .Options;
+        using var db = new ShopCoreDbContext(options, TimeProvider.System);
+        var model = db.GetService<IDesignTimeModel>().Model;
+
+        var searchTerm = model.FindEntityType(typeof(ShopCore.Domain.Entities.ProductSearchTerm))!;
+        var searchIndexes = searchTerm.GetIndexes()
+            .Select(index => string.Join(",", index.Properties.Select(property => property.Name)))
+            .ToList();
+        var keyProperties = searchTerm.FindPrimaryKey()!.Properties
+            .Select(property => property.Name)
+            .ToArray();
+
+        Assert.Equal(["ProductId", "Term"], keyProperties);
+        Assert.Contains("Term,ProductId", searchIndexes);
     }
 
     [SqlServerFact]

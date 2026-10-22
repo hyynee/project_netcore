@@ -4,6 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>shopcore-api-3f0d6b2c-9a1e-4c77-b0d5-6d2f1c8a4e91</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

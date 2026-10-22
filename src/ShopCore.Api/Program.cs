@@ -1,8 +1,11 @@
 ﻿using System.Globalization;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Localization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.OpenApi.Models;
@@ -96,7 +99,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<IUserProfileService, ShopCore.Api.Services.UserProfileService>();
-builder.Services.AddControllers();
+builder.Services.AddScoped<ICatalogService, ShopCore.Api.Services.CatalogService>();
+builder.Services.AddScoped<IAdminCatalogService, ShopCore.Api.Services.AdminCatalogService>();
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 builder.Services.AddOpenApi();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -109,12 +119,34 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddAuthorization();
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
+builder.Services.AddAuthorization(options =>
 {
-    options.ForwardedHeaders =
-        ForwardedHeaders.XForwardedFor |
-        ForwardedHeaders.XForwardedProto;
+    options.AddPolicy(ShopPolicies.AdminOnly, policy => policy.RequireRole(ShopRoles.Admin));
+});
+var proxyOptions = builder.Configuration.GetSection(ProxyOptions.SectionName).Get<ProxyOptions>() ?? new ProxyOptions();
+proxyOptions.KnownProxies = ProxyOptions.ReadKnownEntries(builder.Configuration, nameof(ProxyOptions.KnownProxies));
+proxyOptions.KnownNetworks = ProxyOptions.ReadKnownEntries(builder.Configuration, nameof(ProxyOptions.KnownNetworks));
+if (proxyOptions.TrustForwardedHeaders &&
+    proxyOptions.KnownProxies.Length == 0 &&
+    proxyOptions.KnownNetworks.Length == 0)
+{
+    throw new InvalidOperationException(
+        "Proxy:TrustForwardedHeaders requires at least one Proxy:KnownProxies or Proxy:KnownNetworks entry. " +
+        "Trusting forwarded headers without a known proxy lets a client spoof its own IP address.");
+}
+
+builder.Services.Configure<ProxyOptions>(options =>
+{
+    options.TrustForwardedHeaders = proxyOptions.TrustForwardedHeaders;
+    options.KnownProxies = proxyOptions.KnownProxies;
+    options.KnownNetworks = proxyOptions.KnownNetworks;
+});
+builder.Services.Configure<RequestLocalizationOptions>(options =>
+{
+    var invariant = CultureInfo.InvariantCulture;
+    options.DefaultRequestCulture = new RequestCulture(invariant);
+    options.SupportedCultures = [invariant];
+    options.SupportedUICultures = [invariant];
 });
 builder.Services.AddRateLimiter(options =>
 {
@@ -168,6 +200,10 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.AddPolicy("admin", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            $"{context.Connection.RemoteIpAddress?.ToString() ?? "unknown"}|{context.User.Identity?.Name ?? "unknown"}",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
 });
 
 var corsOptions = builder.Configuration
@@ -206,7 +242,7 @@ if (!app.Environment.IsProduction() &&
 {
     using var scope = app.Services.CreateScope();
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
-    foreach (var role in new[] { "Customer", "Admin" })
+    foreach (var role in new[] { ShopRoles.Customer, ShopRoles.Admin })
     {
         if (!await roleManager.RoleExistsAsync(role))
         {
@@ -239,14 +275,25 @@ if (!app.Environment.IsProduction() &&
             }
         }
 
-        if (!await userManager.IsInRoleAsync(admin, "Admin"))
+        if (!await userManager.IsInRoleAsync(admin, ShopRoles.Admin))
         {
-            await userManager.AddToRoleAsync(admin, "Admin");
+            await userManager.AddToRoleAsync(admin, ShopRoles.Admin);
         }
     }
 }
 
-app.UseForwardedHeaders();
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+{
+    using var sampleScope = app.Services.CreateScope();
+    var sampleDb = sampleScope.ServiceProvider.GetService<ShopCoreDbContext>();
+    if (sampleDb is not null)
+    {
+        await CatalogSampleSeeder.SeedAsync(sampleDb, CancellationToken.None);
+    }
+}
+
+app.UseMiddleware<KnownProxyForwardedHeadersMiddleware>();
+app.UseRequestLocalization();
 app.UseStatusCodePages();
 
 if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"))
@@ -258,8 +305,8 @@ if (!app.Environment.IsDevelopment() && !app.Environment.IsEnvironment("Testing"
 app.UseExceptionHandler();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseCors("Frontend");
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())

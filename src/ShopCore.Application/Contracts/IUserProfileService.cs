@@ -1,4 +1,4 @@
-namespace ShopCore.Application.Contracts;
+﻿namespace ShopCore.Application.Contracts;
 
 public interface IUserProfileService
 {
