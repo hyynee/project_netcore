@@ -355,6 +355,8 @@ namespace ShopCore.Infrastructure.Persistence.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
+                    b.HasIndex("IsActive", "Name");
+
                     b.ToTable("Categories");
                 });
 
@@ -439,6 +441,11 @@ namespace ShopCore.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -886,9 +893,17 @@ namespace ShopCore.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CategoryId", "IsActive");
 
+                    b.HasIndex("IsActive", "CreatedAt");
+
+                    b.HasIndex("IsActive", "Name");
+
+                    b.HasIndex("IsActive", "Price");
+
+                    b.HasIndex("IsActive", "CategoryId", "Name");
+
                     b.ToTable("Products", t =>
                         {
-                            t.HasCheckConstraint("CK_Products_Price_NonNegative", "[Price] >= 0");
+                            t.HasCheckConstraint("CK_Products_Price_Positive", "[Price] > 0");
 
                             t.HasCheckConstraint("CK_Products_Reserved_NonNegative", "[ReservedQuantity] >= 0");
 
@@ -896,6 +911,22 @@ namespace ShopCore.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_Products_Stock_NonNegative", "[Stock] >= 0");
                         });
+                });
+
+            modelBuilder.Entity("ShopCore.Domain.Entities.ProductSearchTerm", b =>
+                {
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("Term")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("ProductId", "Term");
+
+                    b.HasIndex("Term", "ProductId");
+
+                    b.ToTable("ProductSearchTerms");
                 });
 
             modelBuilder.Entity("ShopCore.Domain.Entities.ReconciliationIssue", b =>
@@ -1283,6 +1314,17 @@ namespace ShopCore.Infrastructure.Persistence.Migrations
                         .IsRequired();
 
                     b.Navigation("Category");
+                });
+
+            modelBuilder.Entity("ShopCore.Domain.Entities.ProductSearchTerm", b =>
+                {
+                    b.HasOne("ShopCore.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("ShopCore.Domain.Entities.ReconciliationIssue", b =>

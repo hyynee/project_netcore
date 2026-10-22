@@ -1,0 +1,850 @@
+openapi: 3.0.3
+info:
+  title: ShopCore Phase 03 catalog contract
+  version: 1.0.0
+  description: >-
+    Public catalog read model and admin catalog commands. The public endpoints are
+    anonymous and rate limited; the admin endpoints require the Admin role.
+  contact:
+    name: ShopCore maintainers
+  license:
+    name: Proprietary
+servers:
+  - url: /
+tags:
+  - name: Catalog
+    description: Public product and category reads.
+  - name: AdminCatalog
+    description: Admin catalog commands.
+paths:
+  /api/v1/products:
+    get:
+      tags: [Catalog]
+      operationId: listPublicProducts
+      summary: List active products
+      description: >-
+        Returns a bounded, sorted and paginated page of active products that belong
+        to an active category. Only allow-listed sort keys are accepted.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: categoryId
+          in: query
+          required: false
+          description: Restrict the result to one category.
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          required: false
+          description: >-
+            Name search backed by the product search index (ADR-009). The value is
+            split into terms of letters and digits; every term has to match, and
+            the last term also matches as a prefix. A value without any term
+            returns no product.
+          schema:
+            type: string
+            maxLength: 100
+        - name: sort
+          in: query
+          required: false
+          description: Allow-listed sort key.
+          schema:
+            type: string
+            enum: [newest, name, price, -price]
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblem'
+  /api/v1/products/{id}:
+    get:
+      tags: [Catalog]
+      operationId: getPublicProduct
+      summary: Get one public product
+      description: Returns the product only when it is active and its category is active.
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductDetails'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblem'
+  /api/v1/categories:
+    get:
+      tags: [Catalog]
+      operationId: listPublicCategories
+      summary: List active categories
+      description: Returns a bounded and paginated page of the active categories needed by the catalog.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of categories.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '429':
+          $ref: '#/components/responses/RateLimitedProblem'
+  /api/v1/admin/products:
+    get:
+      tags: [AdminCatalog]
+      operationId: listAdminProducts
+      summary: List products for administration
+      description: >-
+        Returns a bounded, sorted and paginated page of products including the
+        deactivated ones. Requires the Admin role.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: categoryId
+          in: query
+          required: false
+          description: Restrict the result to one category.
+          schema:
+            type: string
+            format: uuid
+        - name: search
+          in: query
+          required: false
+          description: >-
+            Name search backed by the product search index (ADR-009). The value is
+            split into terms of letters and digits; every term has to match, and
+            the last term also matches as a prefix. A value without any term
+            returns no product.
+          schema:
+            type: string
+            maxLength: 100
+        - name: sort
+          in: query
+          required: false
+          description: Allow-listed sort key.
+          schema:
+            type: string
+            enum: [newest, name, price, -price]
+        - name: includeInactive
+          in: query
+          required: false
+          description: Include deactivated products.
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+    post:
+      tags: [AdminCatalog]
+      operationId: createAdminProduct
+      summary: Create a product
+      description: Creates an active product in an active category with a positive price and a non-negative stock.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductRequest'
+      responses:
+        '201':
+          description: The created product.
+          headers:
+            Location:
+              description: The URL of the created product.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductDetails'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+  /api/v1/admin/products/{id}:
+    get:
+      tags: [AdminCatalog]
+      operationId: getAdminProduct
+      summary: Get one product for administration
+      description: Returns the product with its stock, reserved quantity and rowVersion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductDetails'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+    put:
+      tags: [AdminCatalog]
+      operationId: updateAdminProduct
+      summary: Update a product
+      description: >-
+        The submitted rowVersion must match the stored rowVersion, otherwise the
+        write is rejected with 409 Conflict.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdateRequest'
+      responses:
+        '200':
+          description: The updated product.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProductDetails'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+    delete:
+      tags: [AdminCatalog]
+      operationId: deactivateAdminProduct
+      summary: Deactivate a product
+      description: Products are deactivated instead of deleted so order history stays intact.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '204':
+          description: The product is deactivated.
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+  /api/v1/admin/products/{id}/inventory-adjustments:
+    post:
+      tags: [AdminCatalog]
+      operationId: adjustAdminProductInventory
+      summary: Adjust the stock of a product
+      description: >-
+        Records an audited stock delta. The delta must not be zero and the resulting
+        stock must stay greater than or equal to the reserved quantity. The reserved
+        quantity is never modified by this command.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryAdjustmentRequest'
+      responses:
+        '200':
+          description: The applied adjustment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InventoryAdjustmentResult'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+  /api/v1/admin/search/reindex:
+    post:
+      tags: [AdminCatalog]
+      operationId: reindexProductSearch
+      summary: Rebuild the product search index
+      description: >-
+        Rebuilds the product search index from the current product names. It is
+        required when products were written before the index existed.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: The result of the rebuild.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchReindexResult'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+  /api/v1/admin/categories:
+    get:
+      tags: [AdminCatalog]
+      operationId: listAdminCategories
+      summary: List categories for administration
+      description: Returns a bounded and paginated page of every category, including the deactivated ones.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of categories.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryPage'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+    post:
+      tags: [AdminCatalog]
+      operationId: createAdminCategory
+      summary: Create a category
+      description: Creates an active category with a unique trimmed name.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '201':
+          description: The created category.
+          headers:
+            Location:
+              description: The URL of the created category.
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+  /api/v1/admin/categories/{id}:
+    get:
+      tags: [AdminCatalog]
+      operationId: getAdminCategory
+      summary: Get one category for administration
+      description: Returns the category with its active flag.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '200':
+          description: The category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+    put:
+      tags: [AdminCatalog]
+      operationId: updateAdminCategory
+      summary: Update a category
+      description: Renames an existing category; the name must stay unique.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryRequest'
+      responses:
+        '200':
+          description: The updated category.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+        '409':
+          $ref: '#/components/responses/ConflictProblem'
+    delete:
+      tags: [AdminCatalog]
+      operationId: deleteAdminCategory
+      summary: Delete or deactivate a category
+      description: >-
+        A category without products is deleted. A category that still references
+        products is deactivated so the catalog stays consistent.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '200':
+          description: The deletion outcome.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryDeletionResult'
+        '401':
+          $ref: '#/components/responses/UnauthorizedProblem'
+        '403':
+          $ref: '#/components/responses/ForbiddenProblem'
+        '404':
+          $ref: '#/components/responses/NotFoundProblem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: One-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Number of items per page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    ProductId:
+      name: id
+      in: path
+      required: true
+      description: Product identifier.
+      schema:
+        type: string
+        format: uuid
+    CategoryId:
+      name: id
+      in: path
+      required: true
+      description: Category identifier.
+      schema:
+        type: string
+        format: uuid
+  responses:
+    ValidationProblem:
+      description: Validation failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: './phase-00.yaml#/components/schemas/ProblemDetails'
+    ConflictProblem:
+      description: State, concurrency or idempotency conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: './phase-00.yaml#/components/schemas/ProblemDetails'
+    UnauthorizedProblem:
+      description: Authentication is required
+      content:
+        application/problem+json:
+          schema:
+            $ref: './phase-00.yaml#/components/schemas/ProblemDetails'
+    ForbiddenProblem:
+      description: The caller does not have the required role
+      content:
+        application/problem+json:
+          schema:
+            $ref: './phase-00.yaml#/components/schemas/ProblemDetails'
+    NotFoundProblem:
+      description: The resource does not exist
+      content:
+        application/problem+json:
+          schema:
+            $ref: './phase-00.yaml#/components/schemas/ProblemDetails'
+    RateLimitedProblem:
+      description: Too many requests
+      content:
+        application/problem+json:
+          schema:
+            $ref: './phase-00.yaml#/components/schemas/ProblemDetails'
+  schemas:
+    ProductSummary:
+      type: object
+      required: [id, categoryId, categoryName, name, price, currency, availableQuantity]
+      properties:
+        id:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        availableQuantity:
+          type: integer
+    ProductDetails:
+      type: object
+      required: [id, categoryId, categoryName, name, price, currency, availableQuantity]
+      properties:
+        id:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        availableQuantity:
+          type: integer
+    CategoryResponse:
+      type: object
+      required: [id, name, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        isActive:
+          type: boolean
+    SearchReindexResult:
+      type: object
+      required: [productsScanned, termsIndexed]
+      properties:
+        productsScanned:
+          type: integer
+        termsIndexed:
+          type: integer
+    ProductPage:
+      type: object
+      required: [items, page, pageSize, totalCount, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalCount:
+          type: integer
+        totalPages:
+          type: integer
+    CategoryPage:
+      type: object
+      required: [items, page, pageSize, totalCount, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryResponse'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalCount:
+          type: integer
+        totalPages:
+          type: integer
+    AdminProductSummary:
+      type: object
+      required: [id, categoryId, categoryName, name, price, currency, stock, reservedQuantity, availableQuantity, isActive, updatedAt, rowVersion]
+      properties:
+        id:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+        name:
+          type: string
+        price:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        stock:
+          type: integer
+        reservedQuantity:
+          type: integer
+        availableQuantity:
+          type: integer
+        isActive:
+          type: boolean
+        updatedAt:
+          type: string
+          format: date-time
+        rowVersion:
+          type: string
+          description: Base64 encoded concurrency token.
+    AdminProductDetails:
+      type: object
+      required: [id, categoryId, categoryName, name, price, currency, stock, reservedQuantity, availableQuantity, isActive, createdAt, updatedAt, rowVersion]
+      properties:
+        id:
+          type: string
+          format: uuid
+        categoryId:
+          type: string
+          format: uuid
+        categoryName:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          format: int64
+        currency:
+          type: string
+        stock:
+          type: integer
+        reservedQuantity:
+          type: integer
+        availableQuantity:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        rowVersion:
+          type: string
+          description: Base64 encoded concurrency token.
+    AdminProductPage:
+      type: object
+      required: [items, page, pageSize, totalCount, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminProductSummary'
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalCount:
+          type: integer
+        totalPages:
+          type: integer
+    CategoryDeletionResult:
+      type: object
+      required: [id, isActive, deactivated]
+      properties:
+        id:
+          type: string
+          format: uuid
+        isActive:
+          type: boolean
+        deactivated:
+          type: boolean
+          description: True when the category was deactivated instead of deleted.
+    InventoryAdjustmentType:
+      type: string
+      enum: [Restock, Correction, Damage, Return]
+    InventoryAdjustmentRequest:
+      type: object
+      required: [quantityDelta, type, reason, operationReference]
+      properties:
+        quantityDelta:
+          type: integer
+          description: Signed stock delta. Must not be zero.
+        type:
+          $ref: '#/components/schemas/InventoryAdjustmentType'
+        reason:
+          type: string
+          maxLength: 500
+        operationReference:
+          type: string
+          maxLength: 100
+          description: Unique reference of the operation that caused the adjustment.
+    InventoryAdjustmentResult:
+      type: object
+      required: [id, productId, quantityDelta, type, stock, reservedQuantity, createdAt, actorId]
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+        quantityDelta:
+          type: integer
+        type:
+          $ref: '#/components/schemas/InventoryAdjustmentType'
+        stock:
+          type: integer
+        reservedQuantity:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        actorId:
+          type: string
+          format: uuid
+    ProductRequest:
+      type: object
+      required: [name, price, currency, stock, categoryId]
+      properties:
+        name:
+          type: string
+          maxLength: 250
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+        price:
+          type: integer
+          format: int64
+          exclusiveMinimum: true
+          minimum: 0
+          description: Whole positive amount. A fractional price is rejected with 400.
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        stock:
+          type: integer
+          minimum: 0
+        categoryId:
+          type: string
+          format: uuid
+    ProductUpdateRequest:
+      type: object
+      required: [name, price, currency, stock, categoryId, rowVersion]
+      properties:
+        name:
+          type: string
+          maxLength: 250
+        description:
+          type: string
+          maxLength: 4000
+          nullable: true
+        price:
+          type: integer
+          format: int64
+          exclusiveMinimum: true
+          minimum: 0
+          description: Whole positive amount. A fractional price is rejected with 400.
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        stock:
+          type: integer
+          minimum: 0
+        categoryId:
+          type: string
+          format: uuid
+        rowVersion:
+          type: string
+          maxLength: 100
+          description: Base64 encoded rowVersion returned by the previous read.
+    CategoryRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200

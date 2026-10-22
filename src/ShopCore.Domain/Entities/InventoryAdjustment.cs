@@ -1,4 +1,6 @@
-﻿namespace ShopCore.Domain.Entities;
+﻿using ShopCore.Domain.Enums;
+
+namespace ShopCore.Domain.Entities;
 
 public sealed class InventoryAdjustment : Entity
 {
@@ -7,6 +9,7 @@ public sealed class InventoryAdjustment : Entity
     public Guid? OrderId { get; set; }
     public Order? Order { get; set; }
     public int QuantityDelta { get; set; }
+    public InventoryAdjustmentType Type { get; set; }
     public string Reason { get; set; } = string.Empty;
     public string OperationReference { get; set; } = string.Empty;
 }

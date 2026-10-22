@@ -1,4 +1,4 @@
-namespace ShopCore.Domain.Entities;
+﻿namespace ShopCore.Domain.Entities;
 
 public sealed class UserShippingAddress : Entity
 {

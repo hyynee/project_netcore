@@ -1,4 +1,5 @@
 @ShopCore.Api_HostAddress = http://localhost:5130
+@ShopCore.AdminToken = paste-an-admin-access-token
 
 GET {{ShopCore.Api_HostAddress}}/health/live
 Accept: text/plain
@@ -12,5 +13,55 @@ Accept: text/plain
 
 GET {{ShopCore.Api_HostAddress}}/api/v1/diagnostics/error
 Accept: application/problem+json
+
+###
+
+# Public catalog
+GET {{ShopCore.Api_HostAddress}}/api/v1/products?page=1&pageSize=20&sort=newest
+Accept: application/json
+
+###
+
+GET {{ShopCore.Api_HostAddress}}/api/v1/products?search=sample
+Accept: application/json
+
+###
+
+GET {{ShopCore.Api_HostAddress}}/api/v1/categories
+Accept: application/json
+
+###
+
+# Admin catalog
+GET {{ShopCore.Api_HostAddress}}/api/v1/admin/products
+Authorization: Bearer {{ShopCore.AdminToken}}
+Accept: application/json
+
+###
+
+POST {{ShopCore.Api_HostAddress}}/api/v1/admin/products
+Authorization: Bearer {{ShopCore.AdminToken}}
+Content-Type: application/json
+
+{
+  "name": "Sample product",
+  "description": "Created from the http file.",
+  "price": 100000,
+  "currency": "VND",
+  "stock": 10,
+  "categoryId": "11111111-1111-1111-1111-111111111111"
+}
+
+###
+
+POST {{ShopCore.Api_HostAddress}}/api/v1/admin/search/reindex
+Authorization: Bearer {{ShopCore.AdminToken}}
+Accept: application/json
+
+###
+
+GET {{ShopCore.Api_HostAddress}}/api/v1/admin/categories
+Authorization: Bearer {{ShopCore.AdminToken}}
+Accept: application/json
 
 ###

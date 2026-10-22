@@ -29,4 +29,8 @@ public interface IAuthService
 public interface ICurrentUser
 {
     Guid UserId { get; }
+
+    Guid? UserIdIfPresent { get; }
+
+    bool IsInRole(string role);
 }

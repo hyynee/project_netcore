@@ -1,16 +1,24 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using ShopCore.Application.Contracts;
 using ShopCore.Domain.Entities;
 using ShopCore.Domain.Enums;
 
 namespace ShopCore.Infrastructure.Persistence;
 
-public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> options, TimeProvider timeProvider)
+public sealed class ShopCoreDbContext(
+    DbContextOptions<ShopCoreDbContext> options,
+    TimeProvider timeProvider,
+    ICurrentUser? currentUser = null)
     : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options)
 {
+    public static readonly Guid SampleCategoryId = new("11111111-1111-1111-1111-111111111111");
+    public static readonly Guid SampleProductId = new("22222222-2222-2222-2222-222222222222");
+
     public DbSet<Category> Categories => Set<Category>();
     public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductSearchTerm> ProductSearchTerms => Set<ProductSearchTerm>();
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Order> Orders => Set<Order>();
@@ -24,6 +32,12 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
     public DbSet<ReconciliationIssue> ReconciliationIssues => Set<ReconciliationIssue>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<UserShippingAddress> UserShippingAddresses => Set<UserShippingAddress>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    {
+        base.OnConfiguring(optionsBuilder);
+        optionsBuilder.AddInterceptors(new ProductSearchIndexInterceptor());
+    }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -67,16 +81,27 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
     private void ApplyAuditValues()
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
+        var actorId = currentUser?.UserIdIfPresent;
         foreach (var entry in ChangeTracker.Entries<Entity>())
         {
             if (entry.State == EntityState.Added)
             {
                 entry.Entity.CreatedAt = now;
                 entry.Entity.UpdatedAt = now;
+                if (actorId is Guid actor)
+                {
+                    entry.Entity.CreatedBy = actor;
+                    entry.Entity.UpdatedBy = actor;
+                }
             }
             else if (entry.State == EntityState.Modified)
             {
                 entry.Entity.UpdatedAt = now;
+                if (actorId is Guid modifier)
+                {
+                    entry.Entity.UpdatedBy = modifier;
+                }
+
                 entry.Property(entity => entity.CreatedAt).IsModified = false;
                 entry.Property(entity => entity.CreatedBy).IsModified = false;
             }
@@ -126,7 +151,7 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
         var category = modelBuilder.Entity<Category>();
         category.Property(x => x.Name).HasMaxLength(200).IsRequired();
         category.HasIndex(x => x.Name).IsUnique();
-
+        category.HasIndex(x => new { x.IsActive, x.Name });
         var product = modelBuilder.Entity<Product>();
         product.Property(x => x.Name).HasMaxLength(250).IsRequired();
         product.Property(x => x.Description).HasMaxLength(4000);
@@ -134,9 +159,13 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
         product.Property(x => x.Price).HasPrecision(18, 0);
         product.Property(x => x.RowVersion).IsRowVersion();
         product.HasIndex(x => new { x.CategoryId, x.IsActive });
+        product.HasIndex(x => new { x.IsActive, x.Name });
+        product.HasIndex(x => new { x.IsActive, x.CategoryId, x.Name });
+        product.HasIndex(x => new { x.IsActive, x.Price });
+        product.HasIndex(x => new { x.IsActive, x.CreatedAt });
         product.ToTable(table =>
         {
-            table.HasCheckConstraint("CK_Products_Price_NonNegative", "[Price] >= 0");
+            table.HasCheckConstraint("CK_Products_Price_Positive", "[Price] > 0");
             table.HasCheckConstraint("CK_Products_Stock_NonNegative", "[Stock] >= 0");
             table.HasCheckConstraint("CK_Products_Reserved_NonNegative", "[ReservedQuantity] >= 0");
             table.HasCheckConstraint("CK_Products_Reserved_NotGreaterThanStock",
@@ -144,6 +173,13 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
         });
         category.HasMany(x => x.Products).WithOne(x => x.Category)
             .HasForeignKey(x => x.CategoryId).OnDelete(DeleteBehavior.Restrict);
+
+        var searchTerm = modelBuilder.Entity<ProductSearchTerm>();
+        searchTerm.HasKey(x => new { x.ProductId, x.Term });
+        searchTerm.Property(x => x.Term).HasMaxLength(100).IsRequired();
+        searchTerm.HasIndex(x => new { x.Term, x.ProductId });
+        searchTerm.HasOne(x => x.Product).WithMany()
+            .HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Cascade);
     }
 
     private static void ConfigureCart(ModelBuilder modelBuilder)
@@ -244,6 +280,7 @@ public sealed class ShopCoreDbContext(DbContextOptions<ShopCoreDbContext> option
             .HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
 
         var adjustment = modelBuilder.Entity<InventoryAdjustment>();
+        adjustment.Property(x => x.Type).HasConversion<string>().HasMaxLength(32).IsRequired();
         adjustment.Property(x => x.Reason).HasMaxLength(500).IsRequired();
         adjustment.Property(x => x.OperationReference).HasMaxLength(100).IsRequired();
         adjustment.HasIndex(x => x.OperationReference).IsUnique();
